@@ -15,6 +15,7 @@ Key new concepts:
   OHLCV candle  : Open/High/Low/Close/Volume — the candlestick chart format
 """
 
+import os
 import json
 import time
 import asyncio
@@ -29,9 +30,9 @@ from confluent_kafka import Consumer, KafkaError
 
 KAFKA_TOPIC = "market-data-raw"
 
-POSTGRES_DSN = "postgresql://market_user:market_pass@localhost:5432/market_data"
+POSTGRES_DSN = os.environ.get("POSTGRES_DSN", "postgresql://market_user:market_pass@localhost:5432/market_data")
 
-ES_HOST = "http://localhost:9200"
+ES_HOST = os.environ.get("ES_HOST", "http://localhost:9200")
 ES_INDEX = "market-ticks"   # Elasticsearch index name (like a table name)
 
 # ── CANDLE ACCUMULATOR ─────────────────────────────────────────────────────────
@@ -193,7 +194,7 @@ async def main() -> None:
 
     print("[Analytics] Connecting to Kafka...")
     consumer = Consumer({
-        "bootstrap.servers": "localhost:9092",
+        "bootstrap.servers": os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092"),
         "group.id":          "analytics-service",
         "auto.offset.reset": "latest",
     })

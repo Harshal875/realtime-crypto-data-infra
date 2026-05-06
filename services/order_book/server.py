@@ -27,6 +27,7 @@ Architecture inside this file:
                       reads from `order_books` dict
 """
 
+import os
 import json
 import time
 import threading
@@ -81,7 +82,7 @@ def kafka_consumer_thread() -> None:
     (thread pool), so we keep things simple with regular threading.
     """
     consumer = Consumer({
-        "bootstrap.servers": "localhost:9092",
+        "bootstrap.servers": os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092"),
         "group.id":          "order-book-service",   # unique group for this service
         "auto.offset.reset": "latest",
     })

@@ -104,6 +104,87 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── INGESTION SERVICE ─────────────────────────────────────────────
+  # Connects to Binance WebSocket and publishes raw ticks to Kafka.
+  ingestion:
+    build: ./services/ingestion
+    container_name: ingestion
+    restart: on-failure
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+
+  # ── ORDER BOOK SERVICE ────────────────────────────────────────────
+  # Consumes Kafka ticks, maintains in-memory order book, serves gRPC.
+  order-book:
+    build: ./services/order_book
+    container_name: order-book
+    restart: on-failure
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "50051:50051"
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+
+  # ── ANALYTICS SERVICE ─────────────────────────────────────────────
+  # Consumes Kafka → writes to Postgres (TimescaleDB) + Elasticsearch.
+  analytics:
+    build: ./services/analytics
+    container_name: analytics
+    restart: on-failure
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      POSTGRES_DSN: postgresql://market_user:market_pass@postgres:5432/market_data
+      ES_HOST: http://elasticsearch:9200
+
+  # ── CACHE SERVICE ─────────────────────────────────────────────────
+  # Consumes Kafka → stores latest price in Redis + broadcasts via Pub/Sub.
+  cache:
+    build: ./services/cache
+    container_name: cache
+    restart: on-failure
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+
+  # ── GRAPHQL GATEWAY ───────────────────────────────────────────────
+  # FastAPI + Strawberry GraphQL: queries Redis, Postgres, Elasticsearch.
+  graphql-gateway:
+    build: ./services/graphql_gateway
+    container_name: graphql-gateway
+    restart: on-failure
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_DSN: postgresql://market_user:market_pass@postgres:5432/market_data
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      ES_HOST: http://elasticsearch:9200
+
 volumes:
   postgres_data:
   es_data:

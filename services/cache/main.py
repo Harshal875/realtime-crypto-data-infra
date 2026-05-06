@@ -30,6 +30,7 @@ Pub/Sub channel:
   Message: same JSON as above
 """
 
+import os
 import json
 import redis
 from confluent_kafka import Consumer, KafkaError
@@ -37,8 +38,8 @@ from confluent_kafka import Consumer, KafkaError
 # ── CONFIGURATION ──────────────────────────────────────────────────────────────
 
 KAFKA_TOPIC    = "market-data-raw"
-REDIS_HOST     = "localhost"
-REDIS_PORT     = 6379
+REDIS_HOST     = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT     = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_CHANNEL  = "price-updates"   # Pub/Sub channel name
 PRICE_KEY_TTL  = 5                 # seconds before a cached price expires
 
@@ -53,7 +54,7 @@ def main() -> None:
 
     # Connect to Kafka
     consumer = Consumer({
-        "bootstrap.servers": "localhost:9092",
+        "bootstrap.servers": os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092"),
         "group.id":          "cache-service",    # separate group from analytics
         "auto.offset.reset": "latest",
     })

@@ -15,6 +15,7 @@ New concepts:
   - producer.poll(): non-blocking flush — triggers delivery callbacks without blocking
 """
 
+import os
 import asyncio
 import json
 import ssl
@@ -34,9 +35,10 @@ BINANCE_WS_BASE = "wss://stream.binance.com:9443/ws"
 
 # Kafka configuration.
 # bootstrap.servers: the address of the Kafka broker.
-# "localhost:9092" works because we exposed port 9092 in docker-compose.yml.
+# Inside Docker, services reach Kafka via "kafka:29092" (internal listener).
+# Outside Docker (dev machine), it's "localhost:9092".
 KAFKA_CONFIG = {
-    "bootstrap.servers": "localhost:9092",
+    "bootstrap.servers": os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092"),
 }
 
 # The topic name where all raw market data will be published.

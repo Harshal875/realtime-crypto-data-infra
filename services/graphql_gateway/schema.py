@@ -35,6 +35,7 @@ Access the API:
   (Strawberry ships with a built-in browser IDE)
 """
 
+import os
 import json
 import asyncio
 import asyncpg
@@ -47,10 +48,10 @@ from elasticsearch import AsyncElasticsearch
 
 # ── CONFIGURATION ──────────────────────────────────────────────────────────────
 
-POSTGRES_DSN  = "postgresql://market_user:market_pass@localhost:5432/market_data"
-REDIS_HOST    = "localhost"
-REDIS_PORT    = 6379
-ES_HOST       = "http://localhost:9200"
+POSTGRES_DSN  = os.environ.get("POSTGRES_DSN", "postgresql://market_user:market_pass@localhost:5432/market_data")
+REDIS_HOST    = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT    = int(os.environ.get("REDIS_PORT", "6379"))
+ES_HOST       = os.environ.get("ES_HOST", "http://localhost:9200")
 ES_INDEX      = "market-ticks"
 PUBSUB_CHANNEL = "price-updates"
 
