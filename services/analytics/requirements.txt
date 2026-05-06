@@ -1,0 +1,3 @@
+confluent-kafka
+asyncpg             # async Postgres driver (works better with Rancher Desktop on macOS)
+elasticsearch==8.13.0
