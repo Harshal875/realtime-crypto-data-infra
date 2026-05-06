@@ -87,6 +87,23 @@ services:
       timeout: 10s
       retries: 10
 
+  # ── REDIS ─────────────────────────────────────────────────────────
+  # Redis is an in-memory data store — everything lives in RAM, not disk.
+  # Two uses in our system:
+  #   1. Key-value cache: latest price per symbol (sub-millisecond reads)
+  #   2. Pub/Sub: broadcast new prices to all subscribers in real time
+  #      → GraphQL subscriptions (Week 6) will subscribe here
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   es_data:
