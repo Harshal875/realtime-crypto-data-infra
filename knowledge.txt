@@ -1,0 +1,162 @@
+#A# Websockets, polling, SSE
+
+
+1) normally theres a client server architecture which works on request resonse system ie HTTP
+the client sends a request to the server, and server sends back a response and the req-res cycle completes .
+
+2) but the issue here is : 
+
+suppose we have a stock market webapp (server), now client A and B requests the stock price of a stock C , and server sends the response to both.
+but now if client A sells or buys stock C , then the stock price data at server changes, SO now client B has stale data.
+but the server cant send client B the updated data cuz once req-res cycle finishes , server cant send anything to client unless client requests again.
+
+so here the typical req--res architecture fails when the client needs real time data from server.
+
+3) so normally the flow is , your browser initiates a TCP connection with http server, sends a GET/POST HTTP request and server sends response
+and the connection closes .
+
+4) But what if u want a persistent connection ? wherein the client can send any no. of request , at any time, and the browser can also send
+any data at any time to the client 
+
+5) when you go to binance , you can see the prices changing continously in real time . but obviosuly the binance doesnt send http req to binance 
+server and get response back, instead it has a websocket connection.
+
+6) VERY IMP:   THE CLIENT ALWAYS HAS TO SEND THE FIRST HTTP REQUEST TO SERVER IN ORDER TO INITIATE Websockets connection
+
+7) go to binance website live prices , click INSPECT, then on NETWORK, then search for stream and go to header, you'll see :
+wss://stream.binance.com/stream ---> wss stands for websocket secure , and also the binance server is at this endpoint: stream.binance.com/stream 
+
+8) Websockets vs WebRTC : websockets use TCP while webrtc uses UDP, but both are used for same purpose ie realtime data
+example :
+
+in games like pubg, you need realtime data from server (like oppenents location, firearm inventory etc) since we know UDP is unreliable 
+it cant guarantee all the changes in data being sent by server to client, some data can miss also, which is totally fine in games (if exact
+location of opponent at each step is not being sent to us its fine) therefore here we use webrtc.
+
+but in chat application, suppose client A and B are chatting, client A sends msg to server, and server has to send it to client B in realtime
+without any mistakes ie reliably, therefore websocket (tcp) is used here .
+
+9) websockets is a communication protocol which provides bidirectional communication whereas SSE is unidirection ie only server can send.
+
+10) its very difficult to horizontally scale servers for websocket connections
+
+11) Polling : the client asks at short intervals to the server if the server has anything new, if yes the server sends the data, if no
+then server replies no it doesnt have anything .
+
+12) Okay so one imp concept here is, when you are polling, your request doesnt go to the same server again n again, the load balancer 
+directs it to different servers in order to balance the load . so in polling you are not bombarding the same server with many requests 
+
+13) long polling: server holds the client request for short interval and then sends response, then again immediately client requests and same again..
+but in short polling, client sends req, gets instant response , waits x sec, then sends req , recieves response , again waits x sec 
+
+#B# Webhooks :
+
+1) An HTTP callback triggered by an event
+Meaning:
+Event happens
+One server sends an HTTP request
+Another server receives it and reacts
+Usually using:
+POST request
+JSON payload
+
+2) Example Flow (Stripe Payment)
+Suppose you build a SaaS app and use Stripe for payments.
+Without Webhooks
+Your backend keeps asking Stripe:
+Did payment happen?
+Did payment happen?
+Did payment happen?
+This is called polling and wastes resources.
+
+
+With Webhooks
+Flow becomes:
+User pays →
+Stripe detects successful payment →
+Stripe sends POST request to your server →
+Your server updates subscription automatically
+Instant and efficient.
+Visual Architecture
+User Action
+    ↓
+Service detects event
+    ↓
+Webhook triggered
+    ↓
+HTTP POST request sent
+    ↓
+Your server endpoint receives data
+    ↓
+Your backend processes it
+What Actually Gets Sent?
+Example webhook payload:
+{
+  "event": "payment.success",
+  "user": "harshal@example.com",
+  "amount": 999
+}
+Your backend receives this JSON.
+
+
+
+3) IMP : webhook vs API -->
+
+API is a way to communicate, suppose frontend wants some data from backend, we create API endpoints, the frontend requests and hits
+ api url and retrieves data from backend , therefore this is req-res design
+
+whereas in webhook, a response is automatically sent from one system to another server when event occurs 
+
+
+#C# Crypto domain knowledge:
+
+1) BTC, ETH, SOL are digital cryptocurrencies
+
+2)BTCUSDT means BTC priced in USDT
+  1 Bitcoin costs $81,456.
+
+3) okay so in stock market, there are buyers and sellers. At any point of time, the orderbook is :
+
+buyers placing bids , bid is nothing but an order amt they want to buy at
+sellers placing asks, ask is amt the seller wants to sell their stock at 
+
+The best ask = lowest price someone will sell at
+The best bid = highest price someone will buy at
+The gap between them is the spread
+
+4) On Groww, when you click "Buy at Market Price" — you're not placing a bid, instead you're ust accepting whatever the current best ask is.
+
+5) So what exactly is our service doing?
+Groww has a team of engineers whose job is to receive this exact feed from NSE and show it to you. Our ingestion service is doing the 
+same thing — except instead of showing it in a nice UI, we're piping it into an engineering pipeline (Kafka → Postgres → GraphQL etc.)
+
+6) Depth : how many levels of price point are in the order book
+
+example : order book with price 3 
+
+ASK side:
+$81,460.00 → 2.5 BTC   ← could be 10 people,all selling 2.5 btc at $81,460 (ie total order value = 2.5 * $81,460)
+$81,458.00 → 1.2 BTC   ← could be 3 people all selling at $81,458
+$81,456.78 → 0.8 BTC   ← could be 1 person selling at $81,456.78
+
+────────── spread ──────────
+
+$81,456.77 → 3.0 BTC   ← could be 50 people all bidding at $81,456.77
+$81,455.00 → 5.1 BTC
+$81,452.00 → 8.0 BTC
+
+
+7) In our code we use @bookTicker which is even lighter than depth 1 — it just gives you the best bid and ask prices, no quantity breakdown.
+now what is quantity?
+
+8) heres the actual entire flow :
+
+ASK (sellers, listed low to high):
+$81,456.78 → 0.8 BTC   ← cheapest seller right now (best ask)
+$81,458.00 → 1.2 BTC
+$81,460.00 → 2.5 BTC   ← more expensive sellers
+
+The person at $81,460 is saying: "I won't sell my BTC for less than $81,460."
+Their order just hasn't been matched yet because there's a cheaper seller ahead of them
+If that 0.8 BTC at $81,456.78 gets bought up, then the $81,458 seller becomes the new best ask. 
+If that also gets bought, then $81,460 becomes the best ask — and that's when the "price" moves up on your app

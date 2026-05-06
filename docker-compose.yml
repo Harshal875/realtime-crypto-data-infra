@@ -1,0 +1,74 @@
+# docker-compose.yml
+# ─────────────────────────────────────────────────────────────────
+# This file defines all the infrastructure services we need.
+# Run everything with one command: docker compose up -d
+#
+# Week 2: Kafka + Zookeeper only.
+# We'll add more services (Postgres, Redis, Elasticsearch) in later weeks.
+#
+# What is Zookeeper?
+#   Kafka needs a "coordinator" to track which brokers are alive,
+#   who the leader is, etc. Zookeeper plays that role.
+#   Think of it as Kafka's manager — you don't interact with it directly.
+
+version: '3.8'
+
+services:
+
+  # ── ZOOKEEPER ────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181   # port Kafka uses to talk to Zookeeper
+      ZOOKEEPER_TICK_TIME: 2000     # heartbeat interval in ms
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── KAFKA BROKER ─────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"   # expose Kafka to your local machine (so Python can connect)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # LISTENERS explained:
+      #   PLAINTEXT_INTERNAL → used by services inside Docker network
+      #   PLAINTEXT_EXTERNAL → used by your Python code running on your Mac
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT_INTERNAL:PLAINTEXT,PLAINTEXT_EXTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_INTERNAL://kafka:29092,PLAINTEXT_EXTERNAL://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1   # 1 = fine for local dev (no redundancy needed)
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"     # topics are created automatically when first used
+      KAFKA_LOG_RETENTION_HOURS: 24               # keep messages for 24 hours
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ── KAFKA UI (bonus) ──────────────────────────────────────────────
+  # A browser-based dashboard to see your Kafka topics and messages.
+  # Visit http://localhost:8080 after running docker compose up.
+  # This is optional but very helpful for learning.
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
