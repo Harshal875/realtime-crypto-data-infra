@@ -1,0 +1,78 @@
+// orderbook.proto
+// ─────────────────────────────────────────────────────────────────
+// This file is the CONTRACT between the Order Book server and any
+// service that wants to call it.
+//
+// Think of it like this:
+//   - A REST API has routes defined in code (implicit contract)
+//   - gRPC has a .proto file (explicit, typed, enforced contract)
+//
+// Workflow:
+//   1. You write this .proto file
+//   2. You run: python3 -m grpc_tools.protoc ... orderbook.proto
+//   3. It generates orderbook_pb2.py and orderbook_pb2_grpc.py
+//   4. Both server AND client import those generated files
+//   5. Both sides are guaranteed to speak the same language
+//
+// Protobuf syntax:
+//   "message" = a data structure (like a Python dataclass)
+//   "service" = a set of callable functions (the API)
+//   "rpc"     = one function in the API
+//   The numbers (= 1, = 2) are field IDs used in binary encoding
+//   — they have nothing to do with the values, just serialization order
+
+syntax = "proto3";
+
+package orderbook;
+
+// ── SERVICE DEFINITION ────────────────────────────────────────────
+// This is the API — what functions can be called on the server.
+// Any service in our system can call these by importing the generated stub.
+service OrderBookService {
+
+  // Get the current best bid (highest buy price) for a symbol
+  rpc GetBestBid (SymbolRequest) returns (PriceLevel);
+
+  // Get the current best ask (lowest sell price) for a symbol
+  rpc GetBestAsk (SymbolRequest) returns (PriceLevel);
+
+  // Get bid, ask, and spread together in one call
+  rpc GetSpread (SymbolRequest) returns (SpreadResponse);
+
+  // Get full snapshot: bid, ask, spread, quantities, timestamp
+  rpc GetSnapshot (SymbolRequest) returns (SnapshotResponse);
+}
+
+// ── MESSAGE DEFINITIONS ───────────────────────────────────────────
+// These are the input/output data structures.
+
+// Input: which symbol are you asking about?
+message SymbolRequest {
+  string symbol = 1;   // e.g. "BTCUSDT"
+}
+
+// Output: a single price level (price + quantity)
+message PriceLevel {
+  string symbol   = 1;
+  double price    = 2;   // price in USDT
+  double quantity = 3;   // how many BTC at that price
+}
+
+// Output: spread info
+message SpreadResponse {
+  string symbol = 1;
+  double bid    = 2;
+  double ask    = 3;
+  double spread = 4;
+}
+
+// Output: full snapshot of current order book state
+message SnapshotResponse {
+  string symbol       = 1;
+  double best_bid     = 2;
+  double best_ask     = 3;
+  double spread       = 4;
+  double bid_qty      = 5;
+  double ask_qty      = 6;
+  double last_updated = 7;   // Unix timestamp of last update
+}
