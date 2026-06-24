@@ -89,6 +89,7 @@ HTTP POST request sent
 Your server endpoint receives data
     ↓
 Your backend processes it
+
 What Actually Gets Sent?
 Example webhook payload:
 {
@@ -124,7 +125,7 @@ The best ask = lowest price someone will sell at
 The best bid = highest price someone will buy at
 The gap between them is the spread
 
-4) On Groww, when you click "Buy at Market Price" — you're not placing a bid, instead you're ust accepting whatever the current best ask is.
+4) On Groww, when you click "Buy at Market Price" — you're not placing a bid, instead you're just accepting whatever the current best ask is.
 
 5) So what exactly is our service doing?
 Groww has a team of engineers whose job is to receive this exact feed from NSE and show it to you. Our ingestion service is doing the 
@@ -160,3 +161,455 @@ The person at $81,460 is saying: "I won't sell my BTC for less than $81,460."
 Their order just hasn't been matched yet because there's a cheaper seller ahead of them
 If that 0.8 BTC at $81,456.78 gets bought up, then the $81,458 seller becomes the new best ask. 
 If that also gets bought, then $81,460 becomes the best ask — and that's when the "price" moves up on your app
+
+
+
+
+
+
+
+
+
+#### KAFKA #####
+
+1) at the end of week 1 our code does this :      Binance WebSocket  →  your Python code  →  print() to terminal
+2) Imagine now you want to do three things with every price update:
+
+Store it in a database (Postgres)
+Cache the latest price in Redis
+Run analytics (compute OHLCV candles, VWAP)
+
+
+the basic approach would be to do all this inside the stream_symbol() function which streams real time
+prices , but if any one part crashes then there will be errors 
+and suppose later u wanna add a 4th thing, suppose send alerts , then u'll have to edit the ingestion code itself.
+
+3) Binance WebSocket Producer
+           |
+           v
+        Kafka Topic
+      /    |      \
+     v     v       v
+  Db svc  ML svc   Dashboard svc
+
+here every service can independently read data from Kafka
+
+4)  VERY IMP: so its a distributed real-time message broker which stores streams of events/messages.
+
+5) Components:
+
+    a) Topic- a channel where all the stream of messages live
+
+    b)Producer- The thing that sends (publishes) messages into a topic.
+    Your ingestion/main.py is the producer.
+    One producer can write to multiple topics
+
+    c)Consumer - The thing that reads messages from a topic.
+    Your analytics/main.py, cache/main.py, order_book/server.py are all consumers.
+    Each runs independently.
+
+    d) offset
+
+6) conclusion :
+
+In YOUR Binance project
+Right now:
+Binance WS -> print(price)
+Later you could do:
+Binance WS
+    |
+    v
+ Kafka Producer
+    |
+    v
+ Topic: crypto_prices
+
+Then:
+Consumer 1:
+save to PostgreSQL
+Consumer 2:
+calculate indicators
+Consumer 3:
+trigger alerts
+Consumer 4:
+feed React dashboard
+Consumer 5:
+run ML fraud/anomaly detection
+
+
+
+7) We can create partitions/slots in a topic. Suppose in topic messages pile : BTC@10:00:01, ETH@10:00:01, BTC@10:00:02, SOL@10:00:01, BTC@10:00:03
+Now your analytics service wants to calculate a OHLCV candle for BTC — it needs BTC ticks in the exact order they arrived.
+But they're mixed with ETH and SOL ticks everywhere. You'd have to filter and sort.
+
+with separate slots it becomes easy.
+
+8) How does Kafka decide which slot a message goes into?
+
+producer.produce(
+    topic=KAFKA_TOPIC,
+    key=symbol_name.encode(),   # ← "BTCUSDT", "ETHUSDT", or "SOLUSDT"
+    value=json.dumps(message).encode(),
+)
+
+Kafka takes the key ("BTCUSDT"), runs it through a hash function (like a formula that converts a word into a number), 
+and uses that number to pick the slot.
+
+suppose in the incoming stream of data, theres a message like 4.5523 BTCUSDT, the key hashes the BTCUSDT part
+and converts into a number, lets say 0, and therefore the message goes into slot 0
+
+slot 0 (BTC): tick#1, tick#2, tick#3, tick#4 ...  ← always in order
+slot 1 (ETH): tick#1, tick#2, tick#3 ...           ← always in order
+slot 2 (SOL): tick#1, tick#2 ...                   ← always in order
+
+
+9) Offset = the serial number Kafka assigns to each message
+
+suppose the topic has 5 messages, and now consumer starts reading from topic, it first reads the 5 fastly then catches the pace with real time, 
+but now suppose consumer stopped at offset 50, but messages keep on coming in topic till 100, now suppose consumer starts again, will it read from 100
+
+Here's why: Kafka remembers where each consumer group left off
+
+Consumer reads offset 0, 1, 2 ... 50
+Consumer crashes / stops
+Messages 51, 52 ... 100 arrive in Kafka (Kafka stores them, doesn't care)
+
+Consumer restarts
+Consumer asks Kafka: "where did analytics-service stop?"
+Kafka says: "offset 50"
+Consumer reads 51, 52, 53 ... catches up to 100, then goes real-time
+
+No messages lost. No messages skipped.
+
+10) Zookeper:
+
+Imagine Kafka is a big office with multiple people (brokers) working in it.
+
+Now someone needs to answer these questions at all times:
+
+Which broker is currently the "leader" (main one in charge)?
+Which consumer group has read up to which offset?
+Is broker #2 still alive or did it crash?
+Zookeeper is the office manager who tracks all of this. It's a separate process whose only job is to watch Kafka and keep track of that metadata.
+
+In our project:
+
+Kafka cannot start without Zookeeper in our setup — that's why in docker-compose.yml you see:
+Kafka waits for Zookeeper to be healthy before it even starts.
+
+
+11) the topic messages are stored on disk, but wont the retreival on disk be slow by consumer when compared to RAM
+
+Random access (slow) — imagine a librarian who has to walk to a random shelf, find a random book, open to a random page every time.
+
+Sequential access (fast) — imagine a librarian who only ever adds to the end of one shelf, and readers only ever read from where they left off, going forward.
+
+Kafka only does the second one:
+
+Producer always appends to the end of the file. Never inserts in the middle.
+Consumer always reads forward from its last offset. Never jumps around.
+Sequential disk reads/writes are so fast that they can actually match RAM speed in practice. 
+
+
+
+
+### grpc ###
+
+1) APIs: Your frontend sends an http GET  request to a URL /api/price/BTCUSDT and gets a JSON response.
+
+   Rest/RestFul API : API designed properly according to REST rules
+   REST is STATELESS ie every request is independent and Server should not "remember" previous request automatically
+
+
+2) Now imagine another service in your system — say, the analytics service — wants to know: "what is the current best bid price for BTC right now?"
+
+The naive approach: analytics service reads from Kafka itself and maintains its own copy of the latest prices.
+
+But that means every single service has to do the same work — read Kafka, parse messages, keep track of latest prices. That's repetitive.
+
+Better approach: one dedicated service whose only job is to always know the latest price for every symbol and answer questions about it instantly.
+That's the Order Book Service
+
+
+3) we use grpc when services are talking to other services — not a browser to a server. This is called inter-service communication, or service-to-service calls.
+
+4)	                   REST API	             gRPC
+Data format	           JSON (text)	        Protobuf (binary)
+Size of one message	   ~100 bytes	        ~20 bytes
+Speed	             Slower (parse text)	Faster (parse binary)
+Contract	          Informal (docs)	     Strict (.proto file)
+Code generation	          Manual	        Automatic
+
+5) gRPC uses .proto files.
+gRPC uses HTTP/2
+REST usually uses HTTP/1.1
+
+HTTP/2 gives:
+multiplexing
+persistent connection: therefore, grpc allows server streaming, client streaming, bidirectional streaming
+lower latency
+parallel streams
+Makes gRPC fast.
+
+6) The .proto file — what is it and why does it exist? 
+
+The menu says: "here are the dishes you can order, here's what each dish contains." 
+The kitchen (server) and the waiter (client) both follow the same menu. Nobody can order something that isn't on the menu
+
+Your orderbook.proto defines:
+
+What functions can be called by other services (the service block)
+What input each function takes (the message blocks for inputs)
+What output each function returns (the message blocks for outputs)
+
+exmaple :
+
+service OrderBookService {
+  rpc GetBestBid (SymbolRequest) returns (PriceLevel);
+  rpc GetBestAsk (SymbolRequest) returns (PriceLevel);
+  rpc GetSpread  (SymbolRequest) returns (SpreadResponse);
+  rpc GetSnapshot(SymbolRequest) returns (SnapshotResponse);
+}
+
+rpc = remote procedure call
+
+Remote" means it's a function on a different machine/process. 
+You call it like a normal function in your code, but under the hood it goes over the network
+
+
+okay so for example , you have 2 services in a project:
+
+1) Backend service
+2) ML service
+
+now suppose the backend service wants to know the fraud score for a transaction. In normal rest api,
+it would have sent :
+POST/transaction/ML_service
+GET/fraud_score
+
+but in grpc , it can directly call the function:
+
+ml_service.fraud_score_prediction(transaction)
+
+
+
+
+### THREADING , LOCKS:
+
+1) now the server.py of OrderBookService has to do two completely unrelated things simultaneously:
+
+Kafka consumer — keep reading from Kafka topic, update the latest prices in a dict
+gRPC server — answer incoming requests (function calls) from other services
+
+these cant take turns , both have to be done simultaneously, so the code runs 2 threads:
+
+Thread 1 (background):        Thread 2 (main):
+kafka_consumer_thread()        gRPC server on port 50051
+  ↓                              ↓
+reads Kafka forever            listens for incoming calls
+  ↓                              ↓
+updates order_books dict       reads order_books dict
+                               returns answer
+
+
+2) Two threads are both touching the same order_books dict:
+
+Thread 1 is writing to it (new price from Kafka)
+Thread 2 is reading from it (answering a gRPC request)
+
+
+What if Thread 2 reads the dict exactly in the middle of Thread 1 writing to it? 
+Thread 1 has written the new bid but hasn't written the new ask yet. Thread 2 reads a half-updated state — new bid, old ask. 
+Wrong spread. Corrupted data.
+
+
+3) The fix is threading.Lock():
+
+lock = threading.Lock()
+
+# Thread 1 writing:
+with lock:
+    order_books["BTCUSDT"] = { "bid": 81500.00, "ask": 81500.01, ... }
+
+# Thread 2 reading:
+with lock:
+    return dict(order_books["BTCUSDT"])
+
+Only one thread can hold the lock at a time. So you'll never get a half-written read.
+
+4) Every time a gRPC request comes in asking "what's BTC's best bid?", you need to answer it.
+
+Option A — query Kafka every time:
+
+Connect to Kafka
+Find latest BTC message in the topic
+Parse it
+Return it
+Time taken: ~5–10ms minimum.
+
+Option B — read from the RAM dict:
+
+Time taken: ~0.0001ms. 50,000x faster.
+
+
+
+
+
+
+
+
+#### Analytics Service, Postgres, TimescaleDB, Elasticsearch, OHLCV, VWAP 
+
+
+1) After Week 3, prices flow through Kafka and the order book service answers live queries. 
+But nothing is being stored. If your service restarts, all history is gone.
+
+2) The analytics service reads every tick from Kafka and does 3 things with it:
+
+Kafka tick arrives
+      │
+      ├──▶ 1. Write raw tick to Postgres    (permanent record of every price ever)
+      │
+      ├──▶ 2. Index tick in Elasticsearch   (for fast search queries later)
+      │
+      └──▶ 3. Update OHLCV candle in RAM    (every minute, flush completed candle to Postgres)
+
+
+3) Part 2: Postgres and TimescaleDB — what's the difference?
+You probably know Postgres — it's a relational database. Tables, rows, SQL. Like a very powerful Excel that lives on a server.
+
+TimescaleDB is just a plugin on top of Postgres that makes it dramatically better for time-series data. You install it, and then your normal Postgres tables can become "hypertables."
+
+What's a hypertable?
+
+Imagine your price_ticks table eventually has 1 billion rows — one row per tick, months of data.
+If you query WHERE time > last hour, without TimescaleDB, Postgres scans all 1 billion rows to find the relevant ones.
+
+With TimescaleDB, it automatically splits your table into time-based chunks behind the scenes:
+price_ticks table (what you see — looks like one table)
+
+Behind the scenes:
+  chunk_2026_05_01  ← all ticks from May 1
+  chunk_2026_05_02  ← all ticks from May 2
+  chunk_2026_05_03  ← all ticks from May 3
+  ...
+
+When you query WHERE time > last hour, TimescaleDB knows exactly which chunk to look at. It doesn't touch the other chunks at all. 
+Query goes from scanning 1 billion rows to scanning maybe 50,000 rows.
+
+You still write normal SQL. TimescaleDB handles the partitioning silently. 
+That's why it's used by every serious time-series application — stock data, IoT sensor data, metrics, logs.
+
+In init.sql:
+
+This one line turns a normal Postgres table into a hypertable. That's all you need.
+
+
+4) Part 3: Two tables — what's stored in each?
+Table 1: price_ticks
+
+Every single tick from Binance, raw. One row per update.
+
+time                    symbol    bid        ask        spread
+2026-05-09 10:00:00     BTCUSDT   81456.78   81456.79   0.01
+2026-05-09 10:00:00.1   BTCUSDT   81456.80   81456.81   0.01
+2026-05-09 10:00:00.2   ETHUSDT   2345.12    2345.13    0.01
+...
+
+Why store every single tick? Because quant firms use this for backtesting. 
+"If I had bought BTC every time the spread exceeded $0.05 and sold when it dropped below $0.02, what would my profit have been over the last 6 months?" You need tick-by-tick history for that.
+
+Table 2: ohlcv_1min
+
+One row per symbol per minute. The candlestick format.
+time                 symbol    open      high      low       close     vwap       ticks
+2026-05-09 10:00     BTCUSDT   81456.78  81502.00  81430.00  81498.50  81478.23   342
+2026-05-09 10:01     BTCUSDT   81498.50  81510.00  81490.00  81505.00  81501.45   289
+
+This is what you see on Zerodha/TradingView as a candlestick chart. Each candle = one minute of price action.
+
+
+5) Part 4: What is OHLCV?
+OHLCV stands for: Open, High, Low, Close, Volume.
+
+For one minute of BTC trading:
+Open  = the very first price at the start of the minute   → 81456.78
+High  = the highest price reached that minute             → 81502.00
+Low   = the lowest price reached that minute              → 81430.00
+Close = the very last price at the end of the minute      → 81498.50
+Volume= total BTC quantity that changed hands that minute → 12.5 BTC
+
+On a candlestick chart:
+
+If Close > Open → green candle (price went up that minute)
+If Close < Open → red candle (price went down that minute)
+
+Every chart you've ever seen on Groww, Zerodha, TradingView — every single candle is computed exactly this way.
+
+
+
+6) Part 5: What is VWAP?
+VWAP = Volume Weighted Average Price.
+
+The regular average price for a minute: just add up all prices and divide by count. But this treats a 0.001 BTC trade the same as a 50 BTC trade. That's not accurate.
+
+VWAP weights each price by how much volume happened at that price:
+
+VWAP= ∑(price×quantity) / ∑quantity 
+
+In plain English: "what was the average price, but bigger trades count more?"
+tick 1: price=81456, qty=0.5  →  price × qty = 40,728
+tick 2: price=81500, qty=10   →  price × qty = 815,000
+tick 3: price=81480, qty=2    →  price × qty = 162,960
+
+VWAP = (40,728 + 815,000 + 162,960) / (0.5 + 10 + 2)
+     = 1,018,688 / 12.5
+     = 81,495.04
+
+Example:
+
+The tick 2 with 10 BTC pulled the average much closer to 81500 than the simple average would have. That's more accurate — it reflects where most of the actual money moved.
+
+Why traders care about VWAP: It's used as a benchmark. If you bought BTC at 81,490 and VWAP for the day is 81,495, you got a slightly below-average price — good. 
+Institutional traders specifically try to execute orders near VWAP to minimize market impact.
+
+In your code, the accumulator keeps a running pv_sum (price × qty sum) and vol_sum (qty sum). At the end of each minute:
+vwap = pv_sum / vol_sum
+
+
+7) NOT UNDERSTOOD : How the OHLCV candle accumulator works
+
+8) Elasticsearch — what is it and why is it here alongside Postgres?
+You already have Postgres storing every tick. Why also put it in Elasticsearch?
+
+Postgres is great at: structured queries, time ranges, aggregations, JOINs.
+
+Elasticsearch is great at: full-text search, fuzzy matching, complex filters across many fields simultaneously, and it returns results in milliseconds even across hundreds of millions of documents.
+
+VERY IMP: In your GraphQL service (Week 6), 'searchTicks' query reads from ElasticSearch and  lets users do things like:
+"Give me all BTCUSDT ticks where bid was between $80,000 and $82,000"
+
+That kind of multi-field range query across millions of rows is what Elasticsearch is purpose-built for. Postgres can do it too, but Elasticsearch does it faster for search-heavy workloads.
+
+Think of it this way:
+
+Postgres = your permanent ledger (every tick, forever, structured queries)
+Elasticsearch = your search engine (fast lookups, filters, the thing that powers the search bar)
+
+
+
+9) Part 8: Batch commits — why not write to Postgres tick by tick?
+You might notice this in the code:
+
+Why not just commit after every single tick?
+
+Each commit() call involves:
+
+Writing to the Postgres transaction log on disk
+Network round-trip between your code and Postgres
+That takes ~2ms. At 60 ticks/second, committing every tick = 120ms per second spent just on commits. Your service can't keep up with the incoming data.
+
+Batching 50 ticks together = 1 commit per 50 ticks instead of 50 commits. 50x less overhead. The data is still safe — it's in RAM in an open transaction while you collect 50 ticks, then all 50 hit disk in one shot.
+
+
+10)The priceHistory query in your GraphQL (Week 6) reads from ohlcv_1min. The searchTicks query reads from Elasticsearch.
