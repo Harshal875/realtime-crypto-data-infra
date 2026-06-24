@@ -1,2 +1,3 @@
 confluent-kafka
 redis>=5.0.0    # redis-py async client
+
