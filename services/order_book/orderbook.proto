@@ -76,3 +76,4 @@ message SnapshotResponse {
   double ask_qty      = 6;
   double last_updated = 7;   // Unix timestamp of last update
 }
+
