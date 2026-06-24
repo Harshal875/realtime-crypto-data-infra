@@ -332,3 +332,4 @@ class Subscription:
         finally:
             await pubsub.unsubscribe(PUBSUB_CHANNEL)
             await r.aclose()
+
