@@ -242,3 +242,4 @@ class OrderBookService(object):
             timeout,
             metadata,
             _registered_method=True)
+
