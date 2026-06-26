@@ -66,3 +66,4 @@ CREATE TABLE IF NOT EXISTS ohlcv_1min (
 SELECT create_hypertable('ohlcv_1min', 'time', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol ON ohlcv_1min (symbol, time DESC);
 
+
