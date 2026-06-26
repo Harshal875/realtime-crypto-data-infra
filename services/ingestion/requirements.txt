@@ -5,3 +5,4 @@ websockets==12.0   # for connecting to Binance's WebSocket stream
 certifi            # provides trusted SSL certificates (needed on macOS)
 confluent-kafka    # Kafka producer and consumer client
 
+
