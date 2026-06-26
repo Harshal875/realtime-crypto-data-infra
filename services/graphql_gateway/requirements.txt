@@ -4,3 +4,4 @@ asyncpg
 redis>=5.0.0
 elasticsearch[async]==8.13.0
 
+
