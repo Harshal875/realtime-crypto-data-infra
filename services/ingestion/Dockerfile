@@ -25,3 +25,4 @@ COPY . .
 
 # Start the ingestion service
 CMD ["python", "main.py"]
+
