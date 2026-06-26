@@ -77,3 +77,4 @@ message SnapshotResponse {
   double last_updated = 7;   // Unix timestamp of last update
 }
 
+
