@@ -3,3 +3,4 @@ asyncpg             # async Postgres driver (works better with Rancher Desktop o
 elasticsearch==8.13.0
 
 
+
