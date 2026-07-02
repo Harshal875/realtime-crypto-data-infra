@@ -614,3 +614,4 @@ Batching 50 ticks together = 1 commit per 50 ticks instead of 50 commits. 50x le
 
 10)The priceHistory query in your GraphQL (Week 6) reads from ohlcv_1min. The searchTicks query reads from Elasticsearch.
 
+
